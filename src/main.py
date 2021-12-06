@@ -26,6 +26,8 @@
 import numpy as np
 from tqdm import tqdm
 from copy import copy
+from PIL import Image, ImageDraw  # for creating visual of our env
+import cv2  # for showing our visual live
 
 ############# HELPER FUNCTIONS #################################################
 
@@ -55,10 +57,16 @@ def action2str(demo):
 
 
 ###################### GRID CLASS ##############################################
+AGENT_N = 1     # Agent key in dict
+GOAL_N = 2      # Goal key in dict
+DANGER_N = 3    # Danger key in dict
+SAFE_N = 4      # Safe key in dict
+START_N = 5     # Start key in dict
+
 class grid:
 
     ## Initialization of the grid environment and the q_learning objects and parameters ##
-    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1):
+    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1,grid_name="ooo"):
         self.size = s
         self.value_end = val_end
         self.value_danger = val_danger
@@ -66,11 +74,24 @@ class grid:
         self.tab = self.value_safe*np.ones((self.size[0],self.size[1]))
         self.start = start_pos
         self.end = end_pos
+        self.danger = []
         self.state = self.start
         self.q_table = np.zeros((4,self.size[0]*self.size[1]))
         self.discount = disc
         self.lr = learn_rate
+        self.grid_name = grid_name
 
+        # Visualization
+        self.colors = {1: (255, 175, 0),  # blueish color: agent
+                       2: (0, 255, 0),    # green color: goal
+                       3: (0, 0, 255),    # red: danger
+                       4: (0, 0, 0),      # white: safe
+                       5: (0, 255, 255)}  # yellow: start
+
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        fwidth = self.size[1]*100
+        fheight = self.size[0]*100
+        self.out = cv2.VideoWriter('videos\simulation_learning_agent_'+grid_name+'.mp4', fourcc, 10.0, (fwidth,fheight))
 
     ## Creation of the maze ##
     def add_end(self,s):
@@ -91,6 +112,7 @@ class grid:
     def add_danger(self,s):
         if not(s == self.start):
             self.tab[s[0],s[1]] = self.value_danger
+            self.danger.append(s)
         else:
             print("This position corresponds to the starting point!")
 
@@ -145,6 +167,30 @@ class grid:
                     print("!", end = "   ")
 
             print("\n")
+
+
+    def visualize(self):
+        env = 255*np.ones((self.size[0], self.size[1], 3), dtype=np.uint8)  # starts an rbg of our size
+        env[self.end[0]][self.end[1]] = self.colors[GOAL_N]  # sets the goal location tile to green color
+        env[self.start[0]][self.start[1]] = self.colors[START_N]  # sets the start location tile to yellow color
+        env[self.state[0]][self.state[1]] = self.colors[AGENT_N]  # sets the agent tile to blue
+        if self.danger:
+            for i in range(len(self.danger)):
+                env[self.danger[i][0]][self.danger[i][1]] = self.colors[DANGER_N]  # sets the danger location to red
+        
+        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
+        img = img.resize((self.size[1]*100, self.size[0]*100), resample=Image.NEAREST)  # resizing so we can see our agent in all its glory.
+
+        draw = ImageDraw.Draw(img)
+        for i in range(self.size[0]):
+            draw.line((0,100*i, self.size[1]*100,100*i), fill=0)
+        for i in range(self.size[1]):
+            draw.line((100*i,0, 100*i,self.size[0]*100), fill=0)
+
+        cv2.imshow("image", np.array(img))  # show it!
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return
+        self.out.write(np.array(img))
 
 
     ## Q-learning ##
@@ -276,6 +322,9 @@ class grid:
             k = 0
             done = False
             self.rand_reset()
+
+            if e % 100 == 0:
+                self.visualize()
             
             temporal_differences = []
             while k < limit_step and not(done):
@@ -298,9 +347,15 @@ class grid:
                 k += 1
                 temporal_differences.append(abs(err))
 
+                if e % 100 == 0:
+                    self.visualize()
+
             n_step.append(k)
             global_temporal_differences.append(temporal_differences)
-            
+
+        self.out.release()
+        cv2.destroyAllWindows()
+
         return n_step, global_temporal_differences
 
 
@@ -340,11 +395,13 @@ grid_xxo = [[0,1],[0,2],[0,3],[0,4],[1,1],[1,2],[1,3],[1,4],[2,1],[2,2],[3,1],[3
 grid_xxx = [[0,1],[0,2],[0,3],[0,4],[1,1],[1,2],[1,3],[1,4],[2,1],[2,2],[2,3],[2,4],[3,1],[3,2],[3,3],[3,4],[4,1],[4,2],[4,3],[4,4]]
 
 grid_list = [grid_ooo, grid_oox, grid_oxo, grid_xoo, grid_oxx, grid_xox, grid_xxo, grid_xxx]
+grid_names = ["ooo", "oox", "oxo", "xoo", "oxx", "xox", "xxo", "xxx"]
 
 mdp_list = []
+i = 0
 # Creation of the different MDPs
 for item in grid_list:
-    mdp = grid(size, value_goal, value_danger, value_safe, start_state, goal_state, discount_factor, learning_rate)
+    mdp = grid(size, value_goal, value_danger, value_safe, start_state, goal_state, discount_factor, learning_rate, grid_name=grid_names[i])
     mdp.add_end(goal_state)
 
     for danger in item:
@@ -379,6 +436,7 @@ for item in grid_list:
     print(action_map_human)
     
     mdp_list.append(mdp)
+    i += 1
 
 
 # ## 2. Boltzmann Model Implementation
