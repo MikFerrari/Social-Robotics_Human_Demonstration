@@ -240,6 +240,7 @@ class grid:
             policy.append(copy(state))
             actions.append(action)
 
+            # Interrupt path reconstruction if the policy does not converge to the goal
             count += 1
             if count >= timeout:
                 break
@@ -248,38 +249,21 @@ class grid:
 
         return policy, actions, score
 
-    '''
+
     def get_policy_from_all_states(self,optimality_flag,tau):
-        policy = []
-        state = copy(self.start)
-        policy.append(copy(self.start))
-
-        count = 0
-        timeout = 2*self.size[0]*self.size[1]
-        while state != self.end:
-
+        actions = []
+        
+        for i in range(self.size[0]*self.size[1]-1):
             if optimality_flag == "optimal":
-                action = np.argmax(self.q_table[:,ind2sub(self.size[1],state)])
+                action = np.argmax(self.q_table[:,i])
+
             elif optimality_flag == "human":
-                action = self.softmax_policy(self.q_table,self.state,tau)
+                action = self.softmax_policy(sub2ind(self.size[1],i),tau)
 
-            if action == 0 and state[0]-1 >= 0: #North
-                state[0] -= 1
-            elif action == 1 and state[1]-1 >= 0: #West
-                state[1] -= 1
-            elif action == 2 and state[0]+1 < self.size[0]: #South
-                state[0] += 1
-            elif action == 3 and state[1]+1 < self.size[1]: #East
-                state[1] += 1
+            actions.append(action)
             
-            policy.append(copy(state))
-
-            count += 1
-            if count >= timeout:
-                break
-            
-        return policy
-    '''
+        actions = action2str(actions)
+        return actions
 
             
     def q_learning(self,limit_step,nb_episode,algorithm="optimal",epsilon=0.1,tau=1):
@@ -375,6 +359,10 @@ for item in grid_list:
     policy_optimal, actions_optimal, score_optimal = mdp.reconstruct_policy_from_q(start_state,"optimal",temperature)
     policy_human, actions_human, score_human = mdp.reconstruct_policy_from_q(start_state,"human",temperature)
 
+    action_map_optimal = mdp.get_policy_from_all_states("optimal",temperature)
+    action_map_human = mdp.get_policy_from_all_states("human",temperature)
+
+    # Find the policy given a specific start state
     print("Optimal policy: ")
     print(policy_optimal)
     print(actions_optimal)
@@ -383,6 +371,12 @@ for item in grid_list:
     print(policy_human)
     print(actions_human)
     print(score_human)
+
+    # Find the best action for any given state (generalized policy)
+    print("Optimal actions: ")
+    print(action_map_optimal)
+    print("Human actions: ")
+    print(action_map_human)
     
     mdp_list.append(mdp)
 
