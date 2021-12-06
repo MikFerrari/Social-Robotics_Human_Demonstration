@@ -26,6 +26,8 @@
 import numpy as np
 from tqdm import tqdm
 from copy import copy
+import cv2
+from moviepy.editor import VideoClip
 
 ############# HELPER FUNCTIONS #################################################
 
@@ -58,7 +60,7 @@ def action2str(demo):
 class grid:
 
     ## Initialization of the grid environment and the q_learning objects and parameters ##
-    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1):
+    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1, visualize="command_line"):
         self.size = s
         self.value_end = val_end
         self.value_danger = val_danger
@@ -71,6 +73,77 @@ class grid:
         self.discount = disc
         self.lr = learn_rate
 
+        # for visualization purposes
+        self.viz = visualize
+        self.viz_canvas = None
+        self.patch_side = 120
+        self.grid_thickness = 2
+        self.arrow_thickness = 3
+        self.bot_rc = None
+        self.safe_color = (128, 128, 128)
+        self.goal_color = (0, 0, 255)
+        self.danger_color = (255, 0, 0)
+
+        if self.viz == "GUI":
+            self.init_grid_canvas()
+            self.video_out_fpath = 'gridsolver.mp4'
+            self.clip = VideoClip(self.make_frame, duration=15)
+
+
+    ## Visualization functions ##
+    def init_grid_canvas(self):
+        org_h, org_w = self.size[0], self.size[1]
+        viz_w = (self.patch_side * org_w) + (self.grid_thickness * (org_w - 1))
+        viz_h = (self.patch_side * org_h) + (self.grid_thickness * (org_h - 1))
+        self.viz_canvas = np.zeros([viz_h, viz_w, 3]).astype(np.uint8)
+        for i in range(org_h):
+            for j in range(org_w):
+                self.update_viz(i, j)
+
+    def make_frame(self, t):
+        frame = self.highlight_loc(self.viz_canvas, self.state[0], self.state[1])
+        return frame
+
+    def highlight_loc(self, viz_in, i, j):
+        starty = i * (self.patch_side + self.grid_thickness)
+        endy = starty + self.patch_side
+        startx = j * (self.patch_side + self.grid_thickness)
+        endx = startx + self.patch_side
+        viz = viz_in.copy()
+        cv2.rectangle(viz, (startx, starty), (endx, endy), (255, 255, 255), thickness=self.grid_thickness)
+        return viz
+
+    def update_viz(self, i, j):
+        starty = i * (self.patch_side + self.grid_thickness)
+        endy = starty + self.patch_side
+        startx = j * (self.patch_side + self.grid_thickness)
+        endx = startx + self.patch_side
+        patch = np.zeros([self.patch_side, self.patch_side, 3]).astype(np.uint8)
+        if self.tab[i, j] == self.value_safe:
+            patch[:, :, :] = self.safe_color
+        elif self.tab[i, j] == self.value_end:
+            patch[:, :, :] = self.goal_color
+        elif self.tab[i, j] == self.value_danger:
+            patch[:, :, :] = self.danger_color
+        '''    
+        if self.tab[i, j] == self.default_reward:
+            action_probs = self.qvals2probs(self.q_values[i, j])
+            x_component = action_probs[2] - action_probs[1]
+            y_component = action_probs[0] - action_probs[3]
+            magnitude = 1. - action_probs[-1]
+            s = self.patch_side // 2
+            x_patch = int(s * x_component)
+            y_patch = int(s * y_component)
+            arrow_canvas = np.zeros_like(patch)
+            vx = s + x_patch
+            vy = s - y_patch
+            cv2.arrowedLine(arrow_canvas, (s, s), (vx, vy), (255, 255, 255), thickness=self.arrow_thickness,
+                            tipLength=0.5)
+            gridbox = (magnitude * arrow_canvas + (1 - magnitude) * patch).astype(np.uint8)
+            self.viz_canvas[starty:endy, startx:endx] = gridbox
+        else:
+            self.viz_canvas[starty:endy, startx:endx] = patch
+        '''
 
     ## Creation of the maze ##
     def add_end(self,s):
@@ -298,6 +371,10 @@ class grid:
                 k += 1
                 temporal_differences.append(abs(err))
 
+                # Visualization
+                if self.viz == "GUI":
+                    # self.update_viz(start_bot_rc[0], start_bot_rc[1]) ???
+
             n_step.append(k)
             global_temporal_differences.append(temporal_differences)
             
@@ -344,7 +421,8 @@ grid_list = [grid_ooo, grid_oox, grid_oxo, grid_xoo, grid_oxx, grid_xox, grid_xx
 mdp_list = []
 # Creation of the different MDPs
 for item in grid_list:
-    mdp = grid(size, value_goal, value_danger, value_safe, start_state, goal_state, discount_factor, learning_rate)
+    mdp = grid(size, value_goal, value_danger, value_safe, \
+               start_state, goal_state, discount_factor, learning_rate, visualize="GUI")
     mdp.add_end(goal_state)
 
     for danger in item:
