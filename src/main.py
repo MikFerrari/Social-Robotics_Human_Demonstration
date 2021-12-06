@@ -60,7 +60,7 @@ def action2str(demo):
 class grid:
 
     ## Initialization of the grid environment and the q_learning objects and parameters ##
-    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1, visualize="command_line"):
+    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1):
         self.size = s
         self.value_end = val_end
         self.value_danger = val_danger
@@ -74,20 +74,17 @@ class grid:
         self.lr = learn_rate
 
         # for visualization purposes
-        self.viz = visualize
         self.viz_canvas = None
         self.patch_side = 120
         self.grid_thickness = 2
         self.arrow_thickness = 3
-        self.bot_rc = None
         self.safe_color = (128, 128, 128)
         self.goal_color = (0, 0, 255)
         self.danger_color = (255, 0, 0)
 
-        if self.viz == "GUI":
-            self.init_grid_canvas()
-            self.video_out_fpath = 'gridsolver.mp4'
-            self.clip = VideoClip(self.make_frame, duration=15)
+        self.init_grid_canvas()
+        self.video_out_fpath = 'shm_dqn_gridsolver.mp4'
+        self.clip = VideoClip(self.make_frame, duration=15)
 
 
     ## Visualization functions ##
@@ -99,11 +96,11 @@ class grid:
         for i in range(org_h):
             for j in range(org_w):
                 self.update_viz(i, j)
-
+    
     def make_frame(self, t):
         frame = self.highlight_loc(self.viz_canvas, self.state[0], self.state[1])
         return frame
-
+    
     def highlight_loc(self, viz_in, i, j):
         starty = i * (self.patch_side + self.grid_thickness)
         endy = starty + self.patch_side
@@ -114,6 +111,7 @@ class grid:
         return viz
 
     def update_viz(self, i, j):
+        viz_canvas = self.highlight_loc(self.viz_canvas, i, j)
         starty = i * (self.patch_side + self.grid_thickness)
         endy = starty + self.patch_side
         startx = j * (self.patch_side + self.grid_thickness)
@@ -340,12 +338,19 @@ class grid:
 
             
     def q_learning(self,limit_step,nb_episode,algorithm="optimal",epsilon=0.1,tau=1):
-
         self.q_table = np.zeros((4,self.size[0]*self.size[1]))
         n_step = []
         global_temporal_differences = []
 
+        # For interactive visualization
+        global_actions = []
+        global_states = []
+        global_q_table = []
+
         for e in tqdm(range(nb_episode)):
+            global_states.append(self.start)
+            global_q_table.append(self.q_table)
+
             k = 0
             done = False
             self.rand_reset()
@@ -371,14 +376,15 @@ class grid:
                 k += 1
                 temporal_differences.append(abs(err))
 
-                # Visualization
-                if self.viz == "GUI":
-                    # self.update_viz(start_bot_rc[0], start_bot_rc[1]) ???
+                global_actions.append(action)
+                global_states.append(self.state)
+                global_q_table.append(self.q_table)
+
 
             n_step.append(k)
             global_temporal_differences.append(temporal_differences)
             
-        return n_step, global_temporal_differences
+        return n_step, global_temporal_differences, global_actions, global_q_table, global_states
 
 
 # ### 1.2 Creation and display of the envirnoments
@@ -406,6 +412,9 @@ algo = "egreedy"
 epsilon = 0.2
 temperature = 0.1
 
+# Define whether to graphically display or not
+visualize_flag = "GUI"
+
 # Define grid: specify dangerous states
 grid_ooo = []
 grid_oox = [[2,3],[2,4],[3,4],[4,1],[4,2],[4,3],[4,4]]
@@ -418,11 +427,16 @@ grid_xxx = [[0,1],[0,2],[0,3],[0,4],[1,1],[1,2],[1,3],[1,4],[2,1],[2,2],[2,3],[2
 
 grid_list = [grid_ooo, grid_oox, grid_oxo, grid_xoo, grid_oxx, grid_xox, grid_xxo, grid_xxx]
 
+
+def fun(mdp, states, t):
+    frame = mdp.highlight_loc(mdp.viz_canvas, states[t][0], states[t][1])
+    return frame
+
 mdp_list = []
 # Creation of the different MDPs
 for item in grid_list:
     mdp = grid(size, value_goal, value_danger, value_safe, \
-               start_state, goal_state, discount_factor, learning_rate, visualize="GUI")
+               start_state, goal_state, discount_factor, learning_rate)
     mdp.add_end(goal_state)
 
     for danger in item:
@@ -430,7 +444,16 @@ for item in grid_list:
         
     print(mdp.tab)
     
-    mdp.q_learning(max_steps, n_episodes, algo, epsilon, temperature)  
+    global_actions, global_q_table, global_states = mdp.q_learning(max_steps, n_episodes, algo, epsilon, temperature)[2:5] 
+    
+    mdp.init_grid_canvas()
+    mdp.video_out_fpath = 'gridsolver.mp4'
+
+    mdp.clip.set_make_frame(lambda t: fun(mdp, global_states, t))
+
+    mdp.clip = VideoClip(mdp.make_frame, duration=15)
+
+    mdp.clip.write_videofile(mdp.video_out_fpath, fps=460)
 
     mdp.print_env(start_state)
 
