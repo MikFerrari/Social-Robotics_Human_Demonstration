@@ -28,6 +28,7 @@ from tqdm import tqdm
 from copy import copy
 from PIL import Image, ImageDraw  # for creating visual of our env
 import cv2  # for showing our visual live
+import matplotlib.pyplot as plt # for plotting of the dependance on temperature
 
 ############# HELPER FUNCTIONS #################################################
 
@@ -66,7 +67,7 @@ START_N = 5     # Start key in dict
 class grid:
 
     ## Initialization of the grid environment and the q_learning objects and parameters ##
-    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, disc=0.99, learn_rate=0.1,grid_name="ooo"):
+    def __init__(self, s, val_end, val_danger, val_safe, start_pos, end_pos, temp, disc=0.99, learn_rate=0.1,grid_name="ooo"):
         self.size = s
         self.value_end = val_end
         self.value_danger = val_danger
@@ -81,6 +82,8 @@ class grid:
         self.lr = learn_rate
         self.grid_name = grid_name
 
+        self.temperature = temp
+
         # Visualization
         self.colors = {1: (255, 175, 0),  # blueish color: agent
                        2: (0, 255, 0),    # green color: goal
@@ -91,7 +94,7 @@ class grid:
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         fwidth = self.size[1]*100
         fheight = self.size[0]*100
-        self.out = cv2.VideoWriter('videos\simulation_learning_agent_'+grid_name+'.mp4', fourcc, 10.0, (fwidth,fheight))
+        self.out = cv2.VideoWriter('videos\simulation_learning_agent_'+grid_name+'_'+str(self.temperature)+'.mp4', fourcc, 10.0, (fwidth,fheight))
 
     ## Creation of the maze ##
     def add_end(self,s):
@@ -220,6 +223,11 @@ class grid:
             start_point = [sum(x) for x in zip(start_point, [100/3,100/3])]
 
             idx = i//(self.size[1]-1) + i%(self.size[1]-1)*self.size[1]
+            
+            # Avoid plotting actions when in terminal state (goal has already been reached!)
+            if sub2ind(self.size[1],idx) == self.end:
+                continue
+
             if action_map_optimal[idx] == "North":
                 end_point = [sum(x) for x in zip(start_point, [0,-25])]
             elif action_map_optimal[idx] == "West":
@@ -250,7 +258,7 @@ class grid:
         cv2.imshow("image", np.array(img))  # show it!
         if cv2.waitKey(1) & 0xFF == ord('q'):
             return
-        cv2.imwrite('images\\final_policies_'+self.grid_name+'.jpg', np.array(img))
+        cv2.imwrite('images\\final_policies_'+self.grid_name+'_'+str(temperature)+'.png', np.array(img))
         cv2.destroyAllWindows()
 
 
@@ -279,7 +287,27 @@ class grid:
             action = np.argmax(self.q_table[:,ind2sub(self.size[1],self.state)])
             
         return action
-                        
+
+
+    def softmax_distribution(self,s,tau):
+        # Returns a soft-max probability distribution over actions
+        # Inputs:
+        # - Q: a Q-function
+        # - s: the state for which we want the soft-max distribution
+        # - tau: temperature parameter of the soft-max distribution
+        # Output:
+        # - action: action selected based on the Boltzmann probability distribution
+    
+        p = np.zeros(len(self.q_table))
+        sum_p = 0
+        for i in range(len(p)):
+            p[i] = np.exp((self.q_table[i,ind2sub(self.size[1],s)] / tau))
+            sum_p += p[i]
+
+        p = p / sum_p
+
+        return p
+
 
     def softmax_policy(self,s,tau):
         # Returns a soft-max probability distribution over actions
@@ -444,7 +472,7 @@ max_steps = 100
 n_episodes = 10000
 algo = "egreedy"
 epsilon = 0.2
-temperature = 0.1
+temperature_values = [0.1,0.25,0.5,1,10,100]
 
 # Define grid: specify dangerous states
 grid_ooo = []
@@ -463,47 +491,75 @@ mdp_list = []
 i = 0
 # Creation of the different MDPs
 for item in grid_list:
-    mdp = grid(size, value_goal, value_danger, value_safe, start_state, goal_state, discount_factor, learning_rate, grid_name=grid_names[i])
-    mdp.add_end(goal_state)
+    
+    softmax_probabilities = []
+    std_values = []
 
-    for danger in item:
-        mdp.add_danger(danger)
+    for temp in temperature_values:
+        mdp = grid(size, value_goal, value_danger, value_safe, start_state, goal_state, temp, discount_factor, learning_rate, grid_name=grid_names[i])
+        mdp.add_end(goal_state)
+
+        for danger in item:
+            mdp.add_danger(danger)
+            
+        # print(mdp.tab)
+    
+        mdp.q_learning(max_steps, n_episodes, algo, epsilon, temp, display_flag=False)  
+
+        # mdp.print_env(start_state)
+
+        # policy_optimal, actions_optimal, score_optimal = mdp.reconstruct_policy_from_q(start_state,"optimal",temp)
+        # policy_human, actions_human, score_human = mdp.reconstruct_policy_from_q(start_state,"human",temp)
+
+        # action_map_optimal = mdp.get_policy_from_all_states("optimal",temp)
+        # action_map_human = mdp.get_policy_from_all_states("human",temp)
+
+        mdp.visualize_all_policies(temp)
+
+        # Find the policy given a specific start state
+        # print("Optimal policy: ")
+        # print(policy_optimal)
+        # print(actions_optimal)
+        # print(score_optimal)
+        # print("Human policy: ")
+        # print(policy_human)
+        # print(actions_human)
+        # print(score_human)
+
+        # Find the best action for any given state (generalized policy)
+        # print("Optimal actions: ")
+        # print(action_map_optimal)
+        # print("Human actions: ")
+        # print(action_map_human)
+    
+        mdp_list.append(mdp)
+
+        prob_table = []
+        std_table = []
+        for i in range(mdp.size[0]):
+            for j in range(mdp.size[1]):
+                probs = mdp.softmax_distribution([i,j],temp)
+                prob_table.append(probs)
+                std_table.append(np.std(np.array(probs)))
+
+        std_values.append(np.mean(np.array(std_table)))
+        softmax_probabilities.append(prob_table)
         
-    print(mdp.tab)
-    
-    mdp.q_learning(max_steps, n_episodes, algo, epsilon, temperature,display_flag=False)  
+    fig = plt.figure()
+    ax = fig.add_axes([0,0,1,1])
+    ax.bar(np.arange(0,len(temperature_values)),std_values)
+    ax.set_ylabel('Probability Standard Deviation')
+    ax.set_xlabel('Temperature Value')
+    ax.set_title('Randomness of the probability distribution varying the temperature')
+    ax.set_xticks(np.arange(0,len(temperature_values)))
+    ax.set_xticklabels(tuple([str(x) for x in temperature_values]))
+    plt.show()
+    plt.savefig('plots\probVStemp_'+grid_names[i]+'_'+str(temp)+'.png', bbox_inches='tight')
 
-    mdp.print_env(start_state)
-
-    policy_optimal, actions_optimal, score_optimal = mdp.reconstruct_policy_from_q(start_state,"optimal",temperature)
-    policy_human, actions_human, score_human = mdp.reconstruct_policy_from_q(start_state,"human",temperature)
-
-    action_map_optimal = mdp.get_policy_from_all_states("optimal",temperature)
-    action_map_human = mdp.get_policy_from_all_states("human",temperature)
-
-    mdp.visualize_all_policies(temperature)
-
-    # Find the policy given a specific start state
-    print("Optimal policy: ")
-    print(policy_optimal)
-    print(actions_optimal)
-    print(score_optimal)
-    print("Human policy: ")
-    print(policy_human)
-    print(actions_human)
-    print(score_human)
-
-    # Find the best action for any given state (generalized policy)
-    print("Optimal actions: ")
-    print(action_map_optimal)
-    print("Human actions: ")
-    print(action_map_human)
-    
-    mdp_list.append(mdp)
     i += 1
 
 
-# ## 2. Boltzmann Model Implementation
+# ## 2. Boltzmann Model: Role of Temperature Parameter
 
 # In[ ]:
 
