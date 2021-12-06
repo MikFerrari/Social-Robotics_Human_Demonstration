@@ -178,8 +178,8 @@ class grid:
             for i in range(len(self.danger)):
                 env[self.danger[i][0]][self.danger[i][1]] = self.colors[DANGER_N]  # sets the danger location to red
         
-        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
-        img = img.resize((self.size[1]*100, self.size[0]*100), resample=Image.NEAREST)  # resizing so we can see our agent in all its glory.
+        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even though color definitions are bgr
+        img = img.resize((self.size[1]*100, self.size[0]*100), resample=Image.NEAREST)
 
         draw = ImageDraw.Draw(img)
         for i in range(self.size[0]):
@@ -191,6 +191,67 @@ class grid:
         if cv2.waitKey(1) & 0xFF == ord('q'):
             return
         self.out.write(np.array(img))
+
+    
+    def visualize_all_policies(self, temperature):
+        env = 255*np.ones((self.size[0], self.size[1], 3), dtype=np.uint8)  # starts an rbg of our size
+        env[self.end[0]][self.end[1]] = self.colors[GOAL_N]  # sets the goal location tile to green color
+        if self.danger:
+            for i in range(len(self.danger)):
+                env[self.danger[i][0]][self.danger[i][1]] = self.colors[DANGER_N]  # sets the danger location to red
+        
+        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even though color definitions are bgr
+        img = img.resize((self.size[1]*100, self.size[0]*100), resample=Image.NEAREST)
+
+        draw = ImageDraw.Draw(img)
+        for i in range(self.size[0]):
+            draw.line((0,100*i, self.size[1]*100,100*i), fill=0)
+        for i in range(self.size[1]):
+            draw.line((100*i,0, 100*i,self.size[0]*100), fill=0)
+
+        action_map_optimal = self.get_policy_from_all_states("optimal",temperature)
+        action_map_human = self.get_policy_from_all_states("human",temperature)
+
+        color_optimal = (0,0,0)
+        color_human = (190,95,0)
+        for i in range(self.size[0]*self.size[1]):
+            # The usual indexing condition (n_row,n_col) has to be swapped due to image representation convention
+            start_point = [x*100 for x in sub2ind(self.size[0],i)]
+            start_point = [sum(x) for x in zip(start_point, [100/3,100/3])]
+
+            idx = i//(self.size[1]-1) + i%(self.size[1]-1)*self.size[1]
+            if action_map_optimal[idx] == "North":
+                end_point = [sum(x) for x in zip(start_point, [0,-25])]
+            elif action_map_optimal[idx] == "West":
+                end_point = [sum(x) for x in zip(start_point, [-25,0])]
+            elif action_map_optimal[idx] == "South":
+                end_point = [sum(x) for x in zip(start_point, [0,25])]
+            elif action_map_optimal[idx] == "East":
+                end_point = [sum(x) for x in zip(start_point, [25,0])]
+
+            img = cv2.arrowedLine(np.array(img), [int(x) for x in start_point], \
+                                  [int(x) for x in end_point], color_optimal, thickness=2, tipLength = 0.5)
+
+            start_point = [x*100 for x in sub2ind(self.size[0],i)]
+            start_point = [sum(x) for x in zip(start_point, [2*100/3,2*100/3])]
+
+            if action_map_human[idx] == "North":
+                end_point = [sum(x) for x in zip(start_point, [0,-25])]
+            elif action_map_human[idx] == "West":
+                end_point = [sum(x) for x in zip(start_point, [-25,0])]
+            elif action_map_human[idx] == "South":
+                end_point = [sum(x) for x in zip(start_point, [0,25])]
+            elif action_map_human[idx] == "East":
+                end_point = [sum(x) for x in zip(start_point, [25,0])]
+
+            img = cv2.arrowedLine(np.array(img), [int(x) for x in start_point], \
+                                  [int(x) for x in end_point], color_human, thickness=2, tipLength = 0.5)
+
+        cv2.imshow("image", np.array(img))  # show it!
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return
+        cv2.imwrite('images\\final_policies_'+self.grid_name+'.jpg', np.array(img))
+        cv2.destroyAllWindows()
 
 
     ## Q-learning ##
@@ -299,7 +360,7 @@ class grid:
     def get_policy_from_all_states(self,optimality_flag,tau):
         actions = []
         
-        for i in range(self.size[0]*self.size[1]-1):
+        for i in range(self.size[0]*self.size[1]):
             if optimality_flag == "optimal":
                 action = np.argmax(self.q_table[:,i])
 
@@ -312,7 +373,7 @@ class grid:
         return actions
 
             
-    def q_learning(self,limit_step,nb_episode,algorithm="optimal",epsilon=0.1,tau=1):
+    def q_learning(self,limit_step,nb_episode,algorithm="optimal",epsilon=0.1,tau=1,display_flag=False):
 
         self.q_table = np.zeros((4,self.size[0]*self.size[1]))
         n_step = []
@@ -323,7 +384,7 @@ class grid:
             done = False
             self.rand_reset()
 
-            if e % 100 == 0:
+            if e % 100 == 0 and display_flag == True:
                 self.visualize()
             
             temporal_differences = []
@@ -347,14 +408,15 @@ class grid:
                 k += 1
                 temporal_differences.append(abs(err))
 
-                if e % 100 == 0:
+                if e % 100 == 0 and display_flag == True:
                     self.visualize()
 
             n_step.append(k)
             global_temporal_differences.append(temporal_differences)
 
-        self.out.release()
-        cv2.destroyAllWindows()
+        if display_flag == True:
+            self.out.release()
+            cv2.destroyAllWindows()
 
         return n_step, global_temporal_differences
 
@@ -409,7 +471,7 @@ for item in grid_list:
         
     print(mdp.tab)
     
-    mdp.q_learning(max_steps, n_episodes, algo, epsilon, temperature)  
+    mdp.q_learning(max_steps, n_episodes, algo, epsilon, temperature,display_flag=False)  
 
     mdp.print_env(start_state)
 
@@ -418,6 +480,8 @@ for item in grid_list:
 
     action_map_optimal = mdp.get_policy_from_all_states("optimal",temperature)
     action_map_human = mdp.get_policy_from_all_states("human",temperature)
+
+    mdp.visualize_all_policies(temperature)
 
     # Find the policy given a specific start state
     print("Optimal policy: ")
