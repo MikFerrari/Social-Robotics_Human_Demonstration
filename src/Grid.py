@@ -231,33 +231,7 @@ class Grid:
         cv2.destroyAllWindows()
 
 
-    ## Q-learning ##
-    def update_q(self,a,s,s1,r,done):
-        s = ind2sub(self.size[1],s)
-        s1 = ind2sub(self.size[1],s1)
-
-        if done:
-            td = r - self.q_table[a,s]
-        else:
-            td = r + self.discount*np.max(self.q_table[:,s1]) - self.q_table[a,s]
-
-        self.q_table[a,s] = self.q_table[a,s] + self.lr*td
-
-        return td
-        
-   
-    def egreedy_policy(self,epsilon):
-        e = np.random.uniform(0,1)
-
-        # N.B.: If all elements are equal, choose an action randomly
-        if e < epsilon or (self.q_table[:,ind2sub(self.size[1],self.state)] == self.q_table[:,0][0]).all():
-            action = np.random.randint(0,4)
-        else:
-            action = np.argmax(self.q_table[:,ind2sub(self.size[1],self.state)])
-            
-        return action
-
-
+    ## Boltzmann Model ##
     def softmax_distribution(self,s,tau):
         # Returns a soft-max probability distribution over actions
         # Inputs:
@@ -306,6 +280,33 @@ class Grid:
         # Alternatively:
         # action = int(np.random.choice([0,1,2,3], p=p))
         
+        return action
+
+
+    ## Q-learning ##
+    def update_q(self,a,s,s1,r,done):
+        s = ind2sub(self.size[1],s)
+        s1 = ind2sub(self.size[1],s1)
+
+        if done:
+            td = r - self.q_table[a,s]
+        else:
+            td = r + self.discount*np.max(self.q_table[:,s1]) - self.q_table[a,s]
+
+        self.q_table[a,s] = self.q_table[a,s] + self.lr*td
+
+        return td
+        
+   
+    def egreedy_policy(self,epsilon):
+        e = np.random.uniform(0,1)
+
+        # N.B.: If all elements are equal, choose an action randomly
+        if e < epsilon or (self.q_table[:,ind2sub(self.size[1],self.state)] == self.q_table[:,0][0]).all():
+            action = np.random.randint(0,4)
+        else:
+            action = np.argmax(self.q_table[:,ind2sub(self.size[1],self.state)])
+            
         return action
                      
     
